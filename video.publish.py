@@ -112,24 +112,43 @@ class VideoUploader:
         data: bytes,
         filesize: int,
     ):
-        for chunk in range(1, filesize // 10485760 + 1):
-            start = (chunk - 1) * 10485760
-            end = min(chunk * 10485760, filesize)
+        chunk_size = 10485760  # 10MB
+        total_chunks = (filesize + chunk_size - 1) // chunk_size  # 计算总块数
+
+        for chunk in range(1, total_chunks + 1):
+            start = (chunk - 1) * chunk_size
+            end = min(chunk * chunk_size, filesize)
+            chunk_data = data[start:end]  # 获取当前分块的数据
+
             params = {
                 "partNumber": str(chunk),
                 "uploadId": upload_id,
                 "chunk": str(chunk),
-                "chunks": str(filesize // 10485760 + 1),
-                "size": str(filesize),
+                "chunks": str(total_chunks),
+                "size": str(len(chunk_data)),
                 "start": str(start),
                 "end": str(end),
                 "total": str(filesize),
             }
-            resp = self.session.put(
-                f"https:{endpoint}/{upos_uri}", params=params, data=data
-            )
-            resp_json = resp.text
-            log.info(f"Upload resp: {resp_json}")
+
+            log.info(f"Uploading chunk {chunk}/{total_chunks}, params: {params}")
+
+            try:
+                resp = self.session.put(
+                    f"https:{endpoint}/{upos_uri}", params=params, data=chunk_data
+                )
+                log.info(f"Upload chunk {chunk} response: {resp.text}")
+
+                if resp.status_code != 200:
+                    log.error(f"Upload failed for chunk {chunk}: {resp.text}")
+                    return False
+
+            except Exception as e:
+                log.error(f"Error uploading chunk {chunk}: {e}")
+                return False
+
+        log.info("All chunks uploaded successfully")
+        return True
 
     def merge_multipart(
         self, endpoint: str, upos_uri: str, filename: str, upload_id: str, biz_id: str
